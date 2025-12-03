@@ -79,17 +79,122 @@ When solving a task, make sure to follow these guidelines:
   Make sure not to include further explanations, reasoning steps, or extra text.
 """
 
-def make_first_prompt(question: str) -> str:
-    return f"""You will receive a task that may be under these domains: common sense, math, coding, planning, or future prediction.
+#===========================================================================
+# Techniques to implement:
+# 1. tool reasoning with calculate (done)
+# 2. classify domain type: 
+#   math, common sense, coding, planning, future prediction
+# 3. CoT for these domains: math and planning
+# 4. self-verify
+#===========================================================================
+
+#===========================================================================
+# Domain classifier: math, common sense, coding, planning or future preducition
+#===========================================================================
+
+def classify_domain(question:str) -> str:
+    question = question.lower()
+
+    coding_task_phrases = ['import', 'def', 'write a function', 'implement', 'class', 'script', 'program', 'python', 'write code']
+    
+    planning_task_phrases = ['[PLAN]', 'My plan is as follows']
+    
+    # dev prompt is in the style "you are an agenet that can predict future events"
+    future_prediction_phrase = "You are an agent that can predict future events."
+
+    math_task_phrases = ['calculate', 'solve', 'compute', 'what is', 'determine', 'evaluate', 
+                         'find the value', 'how much', 'how many', 'estimate', 
+                         'total', 'sum', 'difference', 'product', 'quotient', 'percentage', 'increase', 'decrease',
+                         'percentage', 'area', 'volume', 'length', 'distance', 'angle', 'equation', 'formula', 
+                         'coordinates', 'expression', 'integral', 'derivative', 'function', 'graph', 'plot',
+                         'log_', 'ln(', 'e^', 'pi', 'sqrt(']
+
+    if any(phrase in question for phrase in coding_task_phrases):
+        return "coding"
+    elif any(phrase in question for phrase in planning_task_phrases):
+        return "planning"
+    elif future_prediction_phrase in question:
+        return "future prediction"
+    elif any(phrase in question for phrase in math_task_phrases):
+        return "math"
+    else:
+        return "common sense"
+    
+
+def make_first_prompt(question: str, domain: str) -> str:
+    if domain == "math":
+        return f"""You are a reasoning agent that has to solve a math problem.
+
+Guidelines:
+- If you need arithmetic to complete the task (for example, computing an intermediate numeric value), reply as:
+CALCULATE: <expression>
+- If you DO NOT need to do arithmetic, or once you have all needed numeric results, then reply in this format:
+FINAL: <answer>
 
 Task:
 {question}
+"""
+    elif domain == "planning":
+        return f"""You are a reasoning agent that has to solve a STRIPS planning task. 
 
-If you need arithmetic to complete the task (for example, computing an intermediate numeric value), reply as:
-CALCULATE: <expression>
+Guidelines:
+Return exactly this format, with no extra text:
+FINAL: (action arg1 arg2 ...)\n(action arg1 arg2 ...)\n...
+- You need to start with `FINAL: ` followed by the plan
+- One action per line. Each action and its arguments are parenthesized.
+- All letters hsould be lowercase
+- Arguments should be in order.
+- No numbering, no explanations or reasoning steps.
 
-If you DO NOT need to do arithmetic, or once you have all needed numeric results, then reply as:
-FINAL: <answer>"""
+Task:
+{question}
+"""
+    #=============================================================================
+    elif domain == "coding":
+        return f"""You are a reasoning agent that has to write a self-contained code solution for a coding task. 
+Guidelines:
+Return exactly this format, with no extra text:
+FINAL: <code only, no extra text> 
+- Include all required imports and helper functions inside the answer
+- The code should be valid and should be able to run error-free
+- Do not comment the code unless otherwise specified
+- You MUST follow any signature/skeleton code or code instructions provided in the question verbatim
+- Do NOT invent formatting that is not specified in the task
+Task:
+{question}
+"""
+    #=============================================================================
+    elif domain == "future prediction":
+        return f"""You are a reasoning agent that has to predict future events that is described in the task. Do not refuse.
+Guidelines:
+Return exactly this format, with no extra text:
+FINAL: \\boxed{{YOUR_PREDICTION_HERE}}
+- Output only one line starting with the "FINAL: " prefix
+- Enclose your prediction in \\boxed{{...}} 
+- Keep predictions concise and to the point
+- No extra text, reasoning steps, or explanations
+- Do NOT invent formatting that is not specified in the task
+
+Task:
+{question}
+"""
+    #=============================================================================
+    elif domain == "common sense":
+        return f"""You are a reasoning agent that has to solve a common sense question answering task. The single answer you provide must be the best one.
+Guidelines:
+Return exactly this format, with no extra text:
+FINAL: <answer>
+- Make sure to provide only a ONE LINE answer starting with the "FINAL: " prefix
+- If multiple words are necessary, keep them on the same line
+- No extra text, reasoning steps, or explanations
+- Do NOT invent formatting that is not specified in the task
+
+Task:
+{question}
+"""
+    else:
+        return f""" """
+
 
 def make_second_prompt(result: str) -> str:
     return f"""The calculation result from the CALCULATE tool is: {result}
@@ -114,14 +219,6 @@ def calculator(expr: str):
     return eval(expr, {"__builtins__": {}}, allowed_names)
 
 
-#===========================================================================
-# Techniques to implement:
-# 1. tool reasoning with calculate (done)
-# 2. classify domain type: 
-#   math, common sense, coding, planning, future prediction
-# 3. CoT for these domains: math and planning
-# 4. self-verify
-#===========================================================================
 
 def run_agent(question: str, max_tool_uses: int = 2, verbose: bool = True):
     r1 = call_model_chat_completions(prompt=make_first_prompt(question), system=SYSTEM_AGENT, temperature=0.0,)
@@ -151,3 +248,9 @@ def run_agent(question: str, max_tool_uses: int = 2, verbose: bool = True):
 
     # action must be FINAL here
     return payload
+
+if __name__ == "__main__":
+    # Example usage
+    question = "If you have 3 apples and you buy 2 more, how many apples do you have in total?"
+    answer = run_agent(question, verbose=True)
+    print("Final Answer:", answer)
