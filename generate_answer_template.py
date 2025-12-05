@@ -22,7 +22,7 @@ OUTPUT_PATH = Path("cse_476_final_project_answers.json")
 
 
 def load_questions(path: Path) -> List[Dict[str, Any]]:
-    with path.open("r") as fp:
+    with path.open("r", encoding="utf-8") as fp:
         data = json.load(fp)
     if not isinstance(data, list):
         raise ValueError("Input file must contain a list of question objects.")
@@ -31,13 +31,29 @@ def load_questions(path: Path) -> List[Dict[str, Any]]:
 
 def build_answers(questions: List[Dict[str, Any]]) -> List[Dict[str, str]]:
     answers = []
+
     for idx, question in enumerate(questions, start=1):
+        if idx % 10 == 0:
+            print(f"[{idx}] Solving question...", flush=True)
+
         # Example: assume you have an agent loop that produces an answer string.
         # real_answer = agent_loop(question["input"])
         # answers.append({"output": real_answer})
+    
         q = question.get("input", "")
-        final_answer = run_agent(q, verbose=False)
+
+        try:
+            final_answer = run_agent(q, verbose=False)
+        except Exception as e:
+            print(f"ERROR on question {idx}", flush=True)
+            final_answer = ""
+
         answers.append({"output": final_answer})
+        if (idx + 1) % 100 == 0:
+            with OUTPUT_PATH.open("w", encoding="utf-8") as fp:
+                json.dump(answers, fp, ensure_ascii=False, indent=2)
+            print(f"Checkpoint saved at {idx+1} question", flush=True)
+
     return answers
 
 
@@ -66,10 +82,10 @@ def main() -> None:
     questions = load_questions(INPUT_PATH)
     answers = build_answers(questions)
 
-    with OUTPUT_PATH.open("w") as fp:
+    with OUTPUT_PATH.open("w", encoding="utf-8") as fp:
         json.dump(answers, fp, ensure_ascii=False, indent=2)
 
-    with OUTPUT_PATH.open("r") as fp:
+    with OUTPUT_PATH.open("r", encoding="utf-8") as fp:
         saved_answers = json.load(fp)
     validate_results(questions, saved_answers)
     print(
@@ -80,4 +96,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

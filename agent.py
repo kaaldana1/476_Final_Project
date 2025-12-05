@@ -102,7 +102,7 @@ def classify_domain(question:str) -> str:
     # dev prompt is in the style "you are an agenet that can predict future events"
     future_prediction_phrase = "you are an agent that can predict future events"
 
-    math_task_phrases = ['24-game', '24 game', 'calculate', 'solve', 'compute', 'what is', 'determine', 'evaluate', 
+    math_task_phrases = ['24-game', '24 game', 'total', 'calculate', 'solve', 'compute', 'what is', 'determine', 'evaluate', 
                          'find the value', 'how much', 'how many', 'estimate', 
                          'total', 'sum', 'difference', 'product', 'quotient', 'percentage', 'increase', 'decrease',
                          'percentage', 'area', 'volume', 'length', 'distance', 'angle', 'equation', 'formula', 
@@ -134,7 +134,7 @@ def make_first_prompt(question: str, domain: str) -> str:
     if domain == "math":
         domain_guidelines = (
             "Math-specific Guidelines:\n"
-            " - Ensure that the answer respects any required formatting instructions in the task (for example, output must be in \\boxed{...}, or YES/NO answers only, or the output fraction must be simplified, etc...)\n"
+            " - Ensure that the answer respects any required formatting instructions in the task\n"
             " - Include no explanations, reasoning steps, numbering or extra text in your final answer\n"
         )
     elif domain == "planning":
@@ -157,7 +157,7 @@ def make_first_prompt(question: str, domain: str) -> str:
         domain_guidelines = (
             "Future prediction-specific Guidelines:\n"
             " - You must make a prediction; even if it is not possible to make a prediction, do NOT refuse\n"
-            " - If the task requires a particular format (for example: \\boxed{Yes} / \\boxed{No}),\n"
+            " - If the task requires a particular format\n"
             "   your <answer> after \"FINAL:\" must follow that exactly.\n"
             " - Include no explanations, reasoning steps, numbering or extra text in your final answer\n"
         )
@@ -192,7 +192,7 @@ def make_second_prompt(question: str, result: str, domain: str) -> str:
     elif domain == "common sense":
         reminder = ( "REMEMBER that you are solving a common sense question and answering task. ")
     else: 
-        reminder = ( "REMEMBER that you are solving a math problem. ")
+        reminder = ( "REMEMBER that you are solving a math problem. If the task doesn't explicitly mention any boxed notation (\\\\boxed), then <answer> should just be the plain number or alebraic expression WITHOUT \\\\boxed{...}. ")
     return f"""The global output guidelines and {domain}-specific guidelines provided earlier still apply.
 For reference, here is the task:
 {question}
@@ -222,6 +222,9 @@ def parse_action(text: str):
 
 def calculator_tool(expression: str):
     allowed_names = {"round": round}
+
+    if re.search(r"[A-Za-z]", expression):
+        raise ValueError(f"Inalid calculate")
     return eval(expression, {"__builtins__": {}}, allowed_names)
 
 
@@ -235,12 +238,14 @@ def calculator_tool(expression: str):
 
 def single_pass_cot(question: str, previous_answer: str, system: str, domain: str, temperature: float = 0.2, verbose: bool = True) -> str:
     cot_prompt = f"""
-OUTPUT REQUIREMENTS:
-    1) Output exactly only one line starting with 'FINAL:'
-    2) Do not include reasoning steps, explanations, or extra text
-Carefully think silently about whether the proprosed answer is correct and follows ALL instructions. 
+MANDATORY OUTPUT REQUIREMENTS:
+    1) You must return only one line in this exact format:
+    FINAL: <answer>
+    2) <answer> HAS TO be the task's direct final answer (for example: if the answer to a task is 5, then <answer> must be 5 and NOT a meta-statement about whether or not the answer follows the format)
+    3) Do not include reasoning steps, explanations, or extra text
+    Carefully think silently about whether the proprosed answer is correct and follows ALL instructions. 
 If the proposed answer is correct, keep the output as-is.
-But if you find any mistakes, your next step is to minimally change the answer. Ensure that the answer is in the required format that is specified in the task -- if the task is silent on format, follow the {domain}-specific guidelines provided earlier.
+But if you find any mistakes, your next step is to re-solve and minimally change the answer. Ensure that the answer is in the required format that is specified in the task -- if the task is silent on format, follow the {domain}-specific guidelines provided earlier.
 
 
 Question:
@@ -254,7 +259,7 @@ Proposed Final Answer:
     if not cot["ok"]:
         raise RuntimeError(f"API error: {cot['error']}")
 
-    if verbose: print("Verifier →", cot["text"])
+    if verbose: print("CoT →", cot["text"])
     action, payload = parse_action(cot["text"])
     if action != "FINAL":
         return previous_answer.strip()
@@ -285,21 +290,20 @@ def chain_of_thought(question: str, previous_answer: str, domain: str) -> str:
 
 def self_verification(question: str, previous_answer: str, domain: str, verbose: bool = True) -> str:
     system = "You are a strict answer-format validator."
-    prompt = """
-OUTPUT REQUIREMENTS:
-    1) Output exactly only one line starting with 'FINAL:'
-    2) Do not include reasoning steps, explanations, or extra text
+    prompt = f"""
+MANDATORY OUTPUT REQUIREMENTS:
+    1) You must return only one line in this exact format:
+    FINAL: <answer>
+    2) <answer> HAS TO be the task's direct final answer (for example, "YES", "67", "\\boxed{{5}}"), NOT a meta-statement about whether or not the answer follows the format
+    3) Do not include reasoning steps, explanations, or extra text
 
 You will receive a question and a proposed final answer. Your job is to:
 1) Read the task and take note any explicit output formatting instructions
    (for example: output must be in \\boxed{{...}}, or YES/NO answers only,
    or the output fraction must be simplified, or only Python code that builds upon (not remove) the base code, etc...)
-2) Re-read the {domain}-specific guidelines provided earlier and take note of the the formatting instructions there as well
-3) Read the proposed answer. If the proposed answer already follows the instructions and guidelines, 
-    and is logically consistent, keep it as-is.
-4) If there are any contradictions between the task instructions and the {domain}-specific guidelines, ALWAYS prioritize the task instructions.
-Meaning if the answer already meets the task instructions but not the guidelines, keep it as-is.
-4) Otherwise, modify only what's necessary in the proposed answer -- MAKE MINIMAL CHANGES.
+2) Use  the {domain}-specific guidelines if and ONLY IF the taks itself if silent about the formatting
+3) If the proposed answer is already correctly-formatted, keep <answer> EXACTLY AS-IS
+
 
 Task:
 {question}
@@ -308,20 +312,45 @@ Previous Final Answer:
 
 """
     format_verification = call_model_chat_completions(prompt=prompt, system=system, temperature=0.0,)
-    if not format_verification["ok"]:
-        raise RuntimeError(f"API error: {format_verification['error']}")
+    if not format_verification["ok"] or not format_verification["text"]:
+        return previous_answer.strip()
+        
 
     if verbose: print("Verifier →", format_verification["text"])
-    action, payload = parse_action(format_verification["text"])
+    try:
+        action, payload = parse_action(format_verification["text"])
+    except ValueError:
+        return previous_answer.strip()
+    
     if action != "FINAL":
         return previous_answer.strip()
     return payload.strip()
 
 
+def answer_normalizer(question: str, answer: str, domain: str):
+
+    # strip the final if there are any
+    if domain in ["math"]:
+        if answer.lower().startswith("final:"):
+            answer = answer.split(":",1)[1].strip()
+
+         # some outputs are in latex
+        if answer.startswith("$") and answer.endswith("$"):
+            answer = answer[1:-1].strip()
+
+        if not "\\boxed" in question and "\\boxed" in answer:
+            left_brak = answer.find("{")
+            right_brak = answer.find("}")
+
+            if right_brak > left_brak:
+                return answer[left_brak+1:right_brak].strip()
+    
+    return  answer
+
 
 # ============================ MAIN AGENT LOOP ============================
 
-def run_agent(question: str, max_tool_uses: int = 2, verbose: bool = True):
+def run_agent(question: str, max_tool_uses: int = 3, verbose: bool = True):
     # classify the domain
     domain = classify_domain(question)
 
@@ -330,7 +359,17 @@ def run_agent(question: str, max_tool_uses: int = 2, verbose: bool = True):
         raise RuntimeError(f"API error: {r1['error']}")
 
     if verbose: print("LLM →", r1["text"])
-    action, payload = parse_action(r1["text"])
+
+    # adding fallbacks when the LLM generates free form text
+    try: 
+        action, payload = parse_action(r1["text"])
+    except ValueError:
+        proposed_answer = (r1["text"] or "").strip()
+        if domain in ["math", "planning"]:
+            proposed_answer = chain_of_thought(question, proposed_answer, domain)
+        
+        final_answer = self_verification(question, proposed_answer, domain, verbose=verbose)
+        return answer_normalizer(question, final_answer, domain)
 
     tool_uses = 0
 
@@ -339,7 +378,49 @@ def run_agent(question: str, max_tool_uses: int = 2, verbose: bool = True):
             raise RuntimeError("Exceeded tool-use limit.")
         tool_uses += 1
 
-        calc_value = calculator_tool(payload)
+        # if LLM payload to calculator tool is wrong, ask the LLM again. This time, it cannot use calculator tool:
+        try:
+            calc_value = calculator_tool(payload)
+        except Exception as e:
+            error_handler_prompt = f""" Your previous CALCULATE expression ({payload}) was invalid because it was not a pure arithmetic expression.
+            Moving forward DO NOT use CALCULATE atl all. Skip straight to giving your final answer. 
+            MANDATORY OUTPUT REQUIREMENTS:
+                1) You must return only one line in this exact format:
+                    FINAL: <answer>
+                2) <answer> HAS TO be the task's direct final answer (for example: if the answer to a task is 5, then <answer> must be 5 and NOT a meta-statement about whether or not the answer follows the format)
+                3) Do not include reasoning steps, explanations, or extra text
+            Task:
+            {question}
+            """
+
+            error_response = call_model_chat_completions(prompt=error_handler_prompt, system=SYSTEM_AGENT, temperature=0.0,)
+            if not error_response["text"] or not error_response["ok"]:
+                return (payload or "").strip()
+
+            if verbose: print("LLM →", error_response["text"])
+
+            try: 
+                action, payload = parse_action(error_response["text"])
+            except ValueError:
+                proposed_answer = (error_response["text"] or "").strip()
+                if domain in ["math", "planning"]:
+                    proposed_answer = chain_of_thought(question, proposed_answer, domain)
+                final_answer = self_verification(question, proposed_answer, domain, verbose=verbose)
+                
+                return answer_normalizer(question, final_answer, domain)
+            
+            # the LLM is still trying to access the calculate tool, then just output the previous one
+            if action != "FINAL":
+                proposed_answer = payload.strip()
+                final_answer = self_verification(question, proposed_answer, domain, verbose=verbose)
+                return answer_normalizer(question, final_answer, domain)
+            
+            proposed_answer = payload.strip()
+            if domain in ["math", "planning"]:
+                proposed_answer = chain_of_thought(question, proposed_answer, domain)
+            final_answer = self_verification(question, proposed_answer, domain, verbose=verbose)
+            return answer_normalizer(question, final_answer, domain)
+
         if verbose: print("CALC =", calc_value)
 
         #ask model again with calculator result
@@ -348,7 +429,15 @@ def run_agent(question: str, max_tool_uses: int = 2, verbose: bool = True):
             raise RuntimeError(f"API error: {rN['error']}")
         if verbose: print("LLM →", rN["text"])
 
-        action, payload = parse_action(rN["text"])
+        try: 
+            action, payload = parse_action(rN["text"])
+        except ValueError:
+            proposed_answer = (rN["text"] or "").strip()
+            if domain in ["math", "planning"]:
+                proposed_answer = chain_of_thought(question, proposed_answer, domain)
+        
+            final_answer = self_verification(question, proposed_answer, domain, verbose=verbose)
+            return answer_normalizer(question, final_answer, domain)
     
     proposed_answer = payload
 
@@ -358,10 +447,14 @@ def run_agent(question: str, max_tool_uses: int = 2, verbose: bool = True):
     
     final_answer = self_verification(question, proposed_answer, domain, verbose=verbose)
     # action must be FINAL here
+
+
+    final_answer = answer_normalizer(question, final_answer, domain)
+
     return final_answer
 
 if __name__ == "__main__":
     # Example usage
-    question = "If you have 3 apples and you buy 2 more, how many apples do you have in total?"
+    question = "The AIME Triathlon consists of a half-mile swim, a 30-mile bicycle ride, and an eight-mile run. Tom swims, bicycles, and runs at constant rates. He runs fives times as fast as he swims, and he bicycles twice as fast as he runs. Tom completes the AIME Triathlon in four and a quarter hours. How many minutes does he spend bicycling?"
     answer = run_agent(question, verbose=True)
     print("Final Answer:", answer)
