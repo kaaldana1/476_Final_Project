@@ -97,12 +97,12 @@ def classify_domain(question:str) -> str:
 
     coding_task_phrases = ['import', 'def', 'write a function', 'implement', 'class', 'script', 'program', 'python', 'write code']
     
-    planning_task_phrases = ['[PLAN]', 'My plan is as follows']
+    planning_task_phrases = ['[plan]', 'my plan is as follows']
     
     # dev prompt is in the style "you are an agenet that can predict future events"
-    future_prediction_phrase = "You are an agent that can predict future events."
+    future_prediction_phrase = "you are an agent that can predict future events"
 
-    math_task_phrases = ['calculate', 'solve', 'compute', 'what is', 'determine', 'evaluate', 
+    math_task_phrases = ['24-game', '24 game', 'calculate', 'solve', 'compute', 'what is', 'determine', 'evaluate', 
                          'find the value', 'how much', 'how many', 'estimate', 
                          'total', 'sum', 'difference', 'product', 'quotient', 'percentage', 'increase', 'decrease',
                          'percentage', 'area', 'volume', 'length', 'distance', 'angle', 'equation', 'formula', 
@@ -122,107 +122,89 @@ def classify_domain(question:str) -> str:
     
 
 def make_first_prompt(question: str, domain: str) -> str:
+    header = (
+        "Global Output Guidelines:\n"
+        " 1) You must return exactly one line only \n"
+        " 2) It must start with either 'CALCULATE: ' or 'FINAL: ' \n"
+        " 3) Do NOT INCLUDE any extra text, reasoning steps, or explanations \n"
+        "Priority of instructions:\n"
+        " 1) ALWAYS follow the explicit output instructions in the task\n"
+        " 2) If the task is silent on output format, follow the domain-specific guidelines below.\n"
+    )
     if domain == "math":
-        return f"""You are a reasoning agent that has to solve a math problem.
-Below is a set of guidelines to follow; however, if the task instructions contradict any of these guidelines, ALWAYS prioritize the task instructions.
-Math-specific Guidelines:
-- If you need arithmetic to complete the task (for example, computing an intermediate numeric value), reply as:
-CALCULATE: <expression>
-- If you DO NOT need to do arithmetic, or once you have all needed numeric results, then reply in this format:
-FINAL: <answer>
-
-Task:
-{question}
-"""
+        domain_guidelines = (
+            "Math-specific Guidelines:\n"
+            " - Ensure that the answer respects any required formatting instructions in the task (for example, output must be in \\boxed{...}, or YES/NO answers only, or the output fraction must be simplified, etc...)\n"
+            " - Include no explanations, reasoning steps, numbering or extra text in your final answer\n"
+        )
     elif domain == "planning":
-        return f"""You are a reasoning agent that has to solve a STRIPS planning task. 
-
-Below is a set of guidelines to follow; however, if the task instructions contradict any of these guidelines, ALWAYS prioritize the task instructions.
-Planning-specific Guidelines:
-Return exactly this format, with no extra text:
-FINAL: (action arg1 arg2 ...)\n(action arg1 arg2 ...)\n...
-- You need to start with `FINAL: ` followed by the plan
-- One action per line. Each action and its arguments are parenthesized.
-- All letters hsould be lowercase
-- Arguments should be in order.
-- No numbering, no explanations or reasoning steps.
-
-Task:
-{question}
-"""
-    #=============================================================================
+        domain_guidelines = (
+            "Planning-specific Guidelines:\n"
+            " - This is a STRIPS planning task\n" 
+            " - The FINAL answer should only be a plan in the required format specified in the task\n"
+            " - If the task requires specific syntax (for example, (action arg1 arg2 ...)), make sure to follow it exactly\n"
+            " - Include no explanations, reasoning steps, numbering or extra text in your final answer\n"
+        )
     elif domain == "coding":
-        return f"""You are a reasoning agent that has to write a self-contained code solution for a coding task. 
-
-Below is a set of guidelines to follow; however, if the task instructions contradict any of these guidelines, ALWAYS prioritize the task instructions.
-Coding-specific Guidelines:
-Return exactly this format, with no extra text:
-FINAL: <code only, no extra text> 
-- Include all required imports and helper functions inside the answer
-- The code should be valid and should be able to run error-free
-- Do not comment the code unless otherwise specified
-- You MUST follow any signature/skeleton code or code instructions provided in the question verbatim
-- Do NOT invent formatting that is not specified in the task
-Task:
-{question}
-"""
-    #=============================================================================
+        domain_guidelines = (
+            "Coding-specifc Guidelines:\n"
+            " - This is a coding task\n"
+            " - The FINAL answer should ONLY be the code, unless the task explicitly allows otherwise\n"
+            " - If the task provides a required signature or skeleton code, you have to match it verbatim\n"
+            " - Include no comments, explanations, reasoning steps, numbering or extra text in your final answer\n"
+        )
     elif domain == "future prediction":
-        return f"""You are a reasoning agent that has to predict future events that is described in the task. Do not refuse.
-
-Below is a set of guidelines to follow; however, if the task instructions contradict any of these guidelines, ALWAYS prioritize the task instructions.
-Future prediction-specific Guidelines:
-Return exactly this format, with no extra text:
-FINAL: \\boxed{{YOUR_PREDICTION_HERE}}
-- Output only one line starting with the "FINAL: " prefix
-- Enclose your prediction in \\boxed{{...}} 
-- Keep predictions concise and to the point
-- No extra text, reasoning steps, or explanations
-- Do NOT invent formatting that is not specified in the task
-
-Task:
-{question}
-"""
-    #=============================================================================
+        domain_guidelines = (
+            "Future prediction-specific Guidelines:\n"
+            " - You must make a prediction; even if it is not possible to make a prediction, do NOT refuse\n"
+            " - If the task requires a particular format (for example: \\boxed{Yes} / \\boxed{No}),\n"
+            "   your <answer> after \"FINAL:\" must follow that exactly.\n"
+            " - Include no explanations, reasoning steps, numbering or extra text in your final answer\n"
+        )
     elif domain == "common sense":
-        return f"""You are a reasoning agent that has to solve a common sense question answering task. The single answer you provide must be the best one.
+        domain_guidelines = (
+            "Common sense-specific Guidelines:\n"
+            " - Provide a concise answer. Be straight to the point.\n"
+            " - If the task specifies an option answer format (for example: A/B/C), or a phrase like 'YES' or 'NO',\n"
+            "  your <answer> needs to follow that exactly.\n"
+            " - Include no explanations, reasoning steps, numbering or extra text in your final answer\n"
+        )
 
-Below is a set of guidelines to follow; however, if the task instructions contradict any of these guidelines, ALWAYS prioritize the task instructions.
-Common sense-specific Guidelines:
-Return exactly this format, with no extra text:
-FINAL: <answer>
-- Make sure to provide only a ONE LINE answer starting with the "FINAL: " prefix
-- If multiple words are necessary, keep them on the same line
-- No extra text, reasoning steps, or explanations
-- Do NOT invent formatting that is not specified in the task
-
+    return f"""{header}{domain_guidelines}
 Task:
 {question}
-"""
-    else:
-        return f""" """
+
+If you need to do any arithmetic calculations to solve the task, use the CALCULATE tool and reply as:
+CALCULATE: <expression>
+Otherwise, provide the final answer as:
+FINAL: <answer>"""
 
 # Some none-math domains may still require calculation. The second prompt 
 # should remind the model of the domain and the format expected with that domain
-def make_second_prompt(result: str, domain: str) -> str:
+def make_second_prompt(question: str, result: str, domain: str) -> str:
     
     if domain == "coding":
-        reminder = """REMEMBER that you are solving a coding task. """
+        reminder = ( "REMEMBER that you are solving a coding task. ")
     elif domain == "planning":
-        reminder = """REMEMBER that you are solving a STRIPS planning task. """
+        reminder = ( "REMEMBER that you are solving a STRIPS planning task. ")
     elif domain == "future prediction":
-        reminder = """REMEMBER that you are solving a future prediction task. """
+        reminder = ( "REMEMBER that you are solving a future prediction task. ")
     elif domain == "common sense":
-        reminder = """REMEMBER that you are solving a common sense question and answering task."""
+        reminder = ( "REMEMBER that you are solving a common sense question and answering task. ")
     else: 
-        reminder = """REMEMBER that you are solving a math problem. """
+        reminder = ( "REMEMBER that you are solving a math problem. ")
+    return f"""The global output guidelines and {domain}-specific guidelines provided earlier still apply.
+For reference, here is the task:
+{question}
 
-    return f"""{reminder} 
-        Your final answer should be valid code in the required format that follows the {domain} guidelines provided earlier exactly; 
-        HOWEVER, if the task instructions contradict any of these guidelines, ALWAYS prioritize the task instructions.
-The calculation result from the CALCULATE tool is: {result}
-Now provide the final answer.
-Reply exactly as: FINAL: <answer>"""
+CALCULATE tool results:
+{result}
+
+{reminder} 
+If the task instructions contradict any of these guidelines, ALWAYS prioritize the task instructions.
+
+Now provide the final answer. Reply exactly as: 
+FINAL: <answer>"""
 
 
 
@@ -238,9 +220,9 @@ def parse_action(text: str):
     return action, payload
 
 
-def calculator(expr: str):
+def calculator_tool(expression: str):
     allowed_names = {"round": round}
-    return eval(expr, {"__builtins__": {}}, allowed_names)
+    return eval(expression, {"__builtins__": {}}, allowed_names)
 
 
 #===========================================================================
@@ -248,37 +230,41 @@ def calculator(expr: str):
 # Runs only for math and planning domains
 # We make three separate passes
 # each with prompts of temp 0.2 to produce more diverse reasoning
+# Model needs to think silently about whether the previous answer is logically correct
 #===========================================================================
 
 def single_pass_cot(question: str, previous_answer: str, system: str, domain: str, temperature: float = 0.2, verbose: bool = True) -> str:
-    cot_prompt = f"""Your job: Think step by step about whether the proposed answer is consistent with the question and correct.
-If you find any mistakes, your next step is to provide a corrected final answer in the required format that is specified in the task and {domain} guidelines. If the 
-task requirements contradict the {domain} guidelines (provided earlier), ALWAYS prioritize the task requirements.
+    cot_prompt = f"""
+OUTPUT REQUIREMENTS:
+    1) Output exactly only one line starting with 'FINAL:'
+    2) Do not include reasoning steps, explanations, or extra text
+Carefully think silently about whether the proprosed answer is correct and follows ALL instructions. 
+If the proposed answer is correct, keep the output as-is.
+But if you find any mistakes, your next step is to minimally change the answer. Ensure that the answer is in the required format that is specified in the task -- if the task is silent on format, follow the {domain}-specific guidelines provided earlier.
+
 
 Question:
 {question}
 Proposed Final Answer:
 {previous_answer}
-
-Now provide the new final answer, do not include any reasoning steps or explanations in the final answer.
-Reply exactly as: FINAL: <answer>"""
+"""
 
     
-    cot = call_model_chat_completions(prompt=cot_prompt, system=system, temperature=temperature, max_tokens=256)
+    cot = call_model_chat_completions(prompt=cot_prompt, system=system, temperature=temperature)
     if not cot["ok"]:
         raise RuntimeError(f"API error: {cot['error']}")
 
     if verbose: print("Verifier →", cot["text"])
     action, payload = parse_action(cot["text"])
     if action != "FINAL":
-        return previous_answer
+        return previous_answer.strip()
     return payload.strip()
     
 def chain_of_thought(question: str, previous_answer: str, domain: str) -> str:
     if domain == "math":
-        system = "You are a correctness verifier for math problems"
+        system = "You are a correctness verifier for math problems."
     else: #planning
-        system = "You are a correctness verifier for STRIPS planning tasks"
+        system = "You are a correctness verifier for STRIPS planning tasks."
     
     cot_answers = []
     for i in range(3):
@@ -299,9 +285,12 @@ def chain_of_thought(question: str, previous_answer: str, domain: str) -> str:
 
 def self_verification(question: str, previous_answer: str, domain: str, verbose: bool = True) -> str:
     system = "You are a strict answer-format validator."
-    prompt = """You will receive a question and a proposed final answer.
-    
-Your job is to:
+    prompt = """
+OUTPUT REQUIREMENTS:
+    1) Output exactly only one line starting with 'FINAL:'
+    2) Do not include reasoning steps, explanations, or extra text
+
+You will receive a question and a proposed final answer. Your job is to:
 1) Read the task and take note any explicit output formatting instructions
    (for example: output must be in \\boxed{{...}}, or YES/NO answers only,
    or the output fraction must be simplified, or only Python code that builds upon (not remove) the base code, etc...)
@@ -310,30 +299,22 @@ Your job is to:
     and is logically consistent, keep it as-is.
 4) If there are any contradictions between the task instructions and the {domain}-specific guidelines, ALWAYS prioritize the task instructions.
 Meaning if the answer already meets the task instructions but not the guidelines, keep it as-is.
-4) Otherwise, modify the answer minimally so that it satisfies the instructions or guidelines and is more likely to be correct.
-    Check whether the proposed Final Answer follows all the formatting instructions 
-    and requirements that were specified in both the task below and the {domain}-specific guidelines provided earlier.
+4) Otherwise, modify only what's necessary in the proposed answer -- MAKE MINIMAL CHANGES.
 
 Task:
 {question}
 Previous Final Answer:
 {previous_answer}
 
-Keep your reasoning to the point and concise.
-
-IMPORTANT:
-- Do NOT explain your reasoning.
-- Your entire reply must be in the form:
-  FINAL: <correctly formatted answer>
 """
-    format_verification = call_model_chat_completions(prompt=prompt, system=system, temperature=0.0, max_tokens=256)
+    format_verification = call_model_chat_completions(prompt=prompt, system=system, temperature=0.0,)
     if not format_verification["ok"]:
         raise RuntimeError(f"API error: {format_verification['error']}")
 
     if verbose: print("Verifier →", format_verification["text"])
     action, payload = parse_action(format_verification["text"])
     if action != "FINAL":
-        return previous_answer
+        return previous_answer.strip()
     return payload.strip()
 
 
@@ -358,19 +339,26 @@ def run_agent(question: str, max_tool_uses: int = 2, verbose: bool = True):
             raise RuntimeError("Exceeded tool-use limit.")
         tool_uses += 1
 
-        calc_value = calculator(payload)
+        calc_value = calculator_tool(payload)
         if verbose: print("CALC =", calc_value)
 
         #ask model again with calculator result
-        rN = call_model_chat_completions(prompt=make_second_prompt(str(calc_value)), system=SYSTEM_AGENT, temperature=0.0,)
+        rN = call_model_chat_completions(prompt=make_second_prompt(question,str(calc_value), domain), system=SYSTEM_AGENT, temperature=0.0,)
         if not rN["ok"]:
             raise RuntimeError(f"API error: {rN['error']}")
         if verbose: print("LLM →", rN["text"])
 
         action, payload = parse_action(rN["text"])
+    
+    proposed_answer = payload
 
+    if domain in ["math", "planning"]:
+        # we do chain of thought for these two domains
+        proposed_answer = chain_of_thought(question, proposed_answer, domain)
+    
+    final_answer = self_verification(question, proposed_answer, domain, verbose=verbose)
     # action must be FINAL here
-    return payload
+    return final_answer
 
 if __name__ == "__main__":
     # Example usage

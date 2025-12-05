@@ -15,6 +15,7 @@ import json
 from pathlib import Path
 from typing import Any, Dict, List
 
+from agent import run_agent
 
 INPUT_PATH = Path("cse_476_final_project_test_data.json")
 OUTPUT_PATH = Path("cse_476_final_project_answers.json")
@@ -34,8 +35,9 @@ def build_answers(questions: List[Dict[str, Any]]) -> List[Dict[str, str]]:
         # Example: assume you have an agent loop that produces an answer string.
         # real_answer = agent_loop(question["input"])
         # answers.append({"output": real_answer})
-        placeholder_answer = f"Placeholder answer for question {idx}"
-        answers.append({"output": placeholder_answer})
+        q = question.get("input", "")
+        final_answer = run_agent(q, verbose=False)
+        answers.append({"output": final_answer})
     return answers
 
 
